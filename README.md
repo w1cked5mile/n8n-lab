@@ -35,9 +35,11 @@ The script performs these steps:
 - Mounts persistent workflow data at `C:\wsl\n8n_lab\n8n_data` (available inside WSL as `/home/node/.n8n`).
 
 ## Post-Installation
+- Connect to the distro with `wsl -d Ubuntu-n8n-server`
+- Verify persistence via `ls -la /mnt/c/wsl/n8n_lab/n8n_data` inside WSL
 - Access the automation UI at http://localhost:5678/
-- Connect to the distro with `wsl -d Ubuntu-n8n-server`.
-- Verify persistence via `ls -la /mnt/c/wsl/n8n_lab/n8n_data` inside WSL.
+- Register your account and request a free Community Edition license key from n8n.io
+- Apply the license key and activate it
 
 ## Updating n8n
 Re-run the appropriate script (`build-n8nWSL.ps1` or `build-n8nLinux.sh`) to relaunch the container with the latest `n8nio/n8n` image. The bind-mounted `n8n_data` directory preserves workflows and credentials across upgrades.
@@ -56,3 +58,4 @@ For Linux workstations, stop and remove the Docker container with `docker rm -f 
 ## Troubleshooting
 - If the script reports `failed to bind host port 0.0.0.0:5678`, stop or remove any existing `n8n` container (including one launched by Docker Desktop) so the host port is free, then rerun the script.
 - When rerunning after a failed attempt, remove the existing container inside the server distro with `sudo docker rm -f n8n` to avoid name conflicts.
+
