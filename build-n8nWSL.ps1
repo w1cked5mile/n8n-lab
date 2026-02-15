@@ -1,21 +1,20 @@
 <#
 .SYNOPSIS
-	Provision two Ubuntu WSL distributions (server and desktop) and deploy n8n in Docker.
+	Provision an Ubuntu WSL distribution and deploy n8n in Docker.
 
 .DESCRIPTION
 	This script runs on Windows and automates the following workflow:
 	  1. Creates the working directory C:\wsl\n8n_lab.
 	  2. Detects the latest Ubuntu LTS release and downloads the matching WSL rootfs.
-	  3. Imports two WSL distributions (Ubuntu-n8n-server, Ubuntu-n8n-desktop).
-	  4. Enables systemd for both distributions.
-	 5. Installs Docker and starts an n8n container on the server instance.
-	 6. Persists n8n application data to C:\wsl\n8n_lab\n8n_data via a bind mount.
-	 7. Installs a minimal Ubuntu desktop experience in the desktop instance.
+	  3. Imports a WSL distribution named Ubuntu-n8n-server.
+	  4. Enables systemd for the distribution.
+	  5. Installs Docker and starts an n8n container.
+	  6. Persists n8n application data to C:\wsl\n8n_lab\n8n_data via a bind mount.
 
 .NOTES
 	- Run this script from an elevated PowerShell session (Run as Administrator).
 	- A recent WSL build (0.67+) is required for systemd support.
-	- The first start of each WSL instance can take several minutes while packages install.
+	- The first start of the WSL instance can take several minutes while packages install.
 #>
 
 [CmdletBinding()]
@@ -377,13 +376,6 @@ function Start-N8nService {
 	Invoke-WslCommand -Distribution $Distribution -Command "sudo docker run -d --name n8n --restart unless-stopped --network n8n-network -p 5678:5678 -v '$HostDataPath':/home/node/.n8n -e TZ=UTC n8nio/n8n:latest"
 }
 
-function Initialize-UbuntuDesktop {
-	param([Parameter(Mandatory)][string]$Distribution)
-
-	Write-Step "Installing desktop packages on $Distribution"
-	Invoke-WslCommand -Distribution $Distribution -Command 'export DEBIAN_FRONTEND=noninteractive; sudo apt-get update && sudo apt-get install -y ubuntu-desktop-minimal'
-}
-
 # Execution starts here
 Test-ElevationRequirement
 Test-WslAvailability
@@ -405,18 +397,13 @@ Get-FileIfNeeded -Uri $rootfsUri -Destination $archivePath
 $tarPath = Convert-ToTarArchive -SourcePath $archivePath -WorkspaceRoot $workspaceRoot
 
 $serverName = 'Ubuntu-n8n-server'
-$desktopName = 'Ubuntu-n8n-desktop'
 $serverInstallPath = Join-Path $workspaceRoot 'ubuntu-server'
-$desktopInstallPath = Join-Path $workspaceRoot 'ubuntu-desktop'
 
 New-DirectoryIfMissing -Path $serverInstallPath
-New-DirectoryIfMissing -Path $desktopInstallPath
 
 Import-WslDistribution -Name $serverName -InstallFolder $serverInstallPath -TarPath $tarPath
-Import-WslDistribution -Name $desktopName -InstallFolder $desktopInstallPath -TarPath $tarPath
 
 Set-WslSystemdConfiguration -Distribution $serverName -Hostname 'ubuntu-n8n-server'
-Set-WslSystemdConfiguration -Distribution $desktopName -Hostname 'ubuntu-n8n-desktop'
 
 Write-Step 'Applying systemd configuration by restarting WSL'
 & wsl.exe --shutdown
@@ -425,6 +412,4 @@ Start-Sleep -Seconds 5
 Initialize-UbuntuServer -Distribution $serverName -Codename $releaseCodename
 Start-N8nService -Distribution $serverName -HostDataPath '/mnt/c/wsl/n8n_lab/n8n_data'
 
-Initialize-UbuntuDesktop -Distribution $desktopName
-
-Write-Step 'All tasks completed. Use "wsl -d Ubuntu-n8n-server" or "wsl -d Ubuntu-n8n-desktop" to connect to the new instances.'
+Write-Step 'All tasks completed. Use "wsl -d Ubuntu-n8n-server" to connect to the new instance.'
