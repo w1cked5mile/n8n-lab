@@ -92,10 +92,8 @@ function Get-UbuntuRootfsUriFromCodename {
 
 	$candidateFileNames = @(
 		"ubuntu-$Codename-wsl-amd64-wsl.rootfs.tar.gz",
-		"ubuntu-$Codename-wsl-amd64-wsl.rootfs.tar.xz",
 		"$Codename-wsl-amd64.wsl",
-		"rootfs.tar.gz",
-		"rootfs.tar.xz"
+		"rootfs.tar.gz"
 	)
 
 	foreach ($baseUri in $baseUris) {
@@ -248,9 +246,29 @@ function Convert-ToTarArchive {
 			return $SourcePath
 		}
 		'.wsl' {
-			$tarPath = [System.IO.Path]::ChangeExtension($SourcePath, '.tar')
-			Expand-GzipFile -SourceGzip $SourcePath -DestinationTar $tarPath
-			return $tarPath
+			Add-Type -AssemblyName System.IO.Compression.FileSystem
+			$zip = [System.IO.Compression.ZipFile]::OpenRead($SourcePath)
+			try {
+				$entry = $zip.Entries | Where-Object { $_.Name -match '\.(tar\.gz|tar)$' } | Select-Object -First 1
+				if (-not $entry) {
+					throw "No rootfs tar entry found inside .wsl package: $SourcePath"
+				}
+				$innerPath = Join-Path (Split-Path $SourcePath) $entry.Name
+				if (-not (Test-Path -LiteralPath $innerPath)) {
+					Write-Step "Extracting $($entry.Name) from .wsl package"
+					$entryStream = $entry.Open()
+					try {
+						$fileStream = [System.IO.File]::Create($innerPath)
+						try { $entryStream.CopyTo($fileStream) }
+						finally { $fileStream.Dispose() }
+					}
+					finally { $entryStream.Dispose() }
+				}
+			}
+			finally {
+				$zip.Dispose()
+			}
+			return Convert-ToTarArchive -SourcePath $innerPath -WorkspaceRoot $WorkspaceRoot
 		}
 		default {
 			throw "Unsupported archive format: $lowerExtension"
@@ -363,10 +381,10 @@ function Initialize-UbuntuServer {
 }
 
 function Start-N8nService {
- 	param(
- 		[Parameter(Mandatory)][string]$Distribution,
- 		[Parameter(Mandatory)][string]$HostDataPath
- 	)
+	param(
+		[Parameter(Mandatory)][string]$Distribution,
+		[Parameter(Mandatory)][string]$HostDataPath
+	)
 
 	Write-Step "Starting n8n container on $Distribution"
 	Invoke-WslCommand -Distribution $Distribution -Command 'sudo systemctl enable --now docker.service'

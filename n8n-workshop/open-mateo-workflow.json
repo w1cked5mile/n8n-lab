@@ -1,0 +1,59 @@
+{
+  "name": "Public GET → Analyze → Report (Open-Meteo)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "b2f7c7c9-1d72-4d4f-8e3e-1a31b3b5a1f1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.open-meteo.com/v1/forecast",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "latitude", "value": "40.71" },
+            { "name": "longitude", "value": "-74.01" },
+            { "name": "hourly", "value": "temperature_2m,precipitation" },
+            { "name": "forecast_days", "value": "3" },
+            { "name": "timezone", "value": "America/New_York" }
+          ]
+        },
+        "options": {
+          "response": { "responseFormat": "json" }
+        }
+      },
+      "id": "d0c2d54b-73dc-4c33-93a2-44a78fbe0ed0",
+      "name": "HTTP Request (Open-Meteo)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [560, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const data = items[0].json;\n\nconst hourly = data.hourly || {};\nconst times = hourly.time || [];\nconst temps = hourly.temperature_2m || [];\nconst precip = hourly.precipitation || [];\n\nif (!Array.isArray(times) || !Array.isArray(temps) || temps.length === 0) {\n  throw new Error('Unexpected response shape: hourly.time / hourly.temperature_2m missing');\n}\n\nconst n = temps.length;\n\nlet minT = Infinity;\nlet maxT = -Infinity;\nlet sumT = 0;\nlet sumP = 0;\nlet maxP = -Infinity;\n\nfor (let i = 0; i < n; i++) {\n  const t = Number(temps[i]);\n  if (!Number.isFinite(t)) continue;\n  if (t < minT) minT = t;\n  if (t > maxT) maxT = t;\n  sumT += t;\n\n  const p = Number(precip[i] || 0);\n  if (Number.isFinite(p)) {\n    sumP += p;\n    if (p > maxP) maxP = p;\n  }\n}\n\nconst avgT = sumT / n;\n\n// simple flags (adjust thresholds as needed)\nconst heatAlert = maxT >= 30;         // °C\nconst heavyRainAlert = sumP >= 10;    // mm over forecast window\n\nconst start = times[0];\nconst end = times[times.length - 1];\n\nconst report = [\n  `# Weather Summary (Open-Meteo)`,\n  `**Location:** 40.71, -74.01 (America/New_York)`,\n  `**Period:** ${start} → ${end}`,\n  ``,\n  `## Temperature (°C)`,\n  `- Max: ${maxT.toFixed(1)}`,\n  `- Min: ${minT.toFixed(1)}`,\n  `- Avg: ${avgT.toFixed(1)}`,\n  ``,\n  `## Precipitation`,\n  `- Total: ${sumP.toFixed(1)} mm`,\n  `- Max hourly: ${Number.isFinite(maxP) ? maxP.toFixed(1) : 'n/a'} mm`,\n  ``,\n  `## Alerts`,\n  `- Heat (>= 30°C): ${heatAlert ? 'YES' : 'NO'}`,\n  `- Heavy rain (>= 10mm total): ${heavyRainAlert ? 'YES' : 'NO'}`\n].join('\\n');\n\nreturn [\n  {\n    json: {\n      metrics: {\n        start,\n        end,\n        temp_c: { min: minT, max: maxT, avg: avgT },\n        precipitation_mm: { total: sumP, max_hourly: maxP },\n        alerts: { heatAlert, heavyRainAlert }\n      },\n      markdownReport: report\n    }\n  }\n];"
+      },
+      "id": "2e7f9460-41b0-4d6a-a2e8-42b6a0f2c3b0",
+      "name": "Analyze + Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [820, 300]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "HTTP Request (Open-Meteo)", "type": "main", "index": 0 }]]
+    },
+    "HTTP Request (Open-Meteo)": {
+      "main": [[{ "node": "Analyze + Report", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1"
+}

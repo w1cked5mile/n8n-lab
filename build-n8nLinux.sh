@@ -23,7 +23,6 @@ log_step() {
 }
 
 ensure_prerequisites() {
-  umask 077
   mkdir -p "${WORKSPACE_DIR}" "${DATA_DIR}"
 }
 
@@ -61,7 +60,7 @@ install_docker_if_missing() {
 
 prepare_runtime() {
   log_step 'Ensuring Docker daemon is running.'
-  systemctl restart docker.service
+  systemctl is-active --quiet docker.service || systemctl start docker.service
 
   log_step 'Creating dedicated Docker network if missing.'
   if ! docker network inspect "${NETWORK_NAME}" >/dev/null 2>&1; then

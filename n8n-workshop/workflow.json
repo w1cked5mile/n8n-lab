@@ -1,0 +1,175 @@
+{
+  "name": "Web → Parse → AI Agent (LLM + Tool) → Formatted Report",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "7b4a9a2a-4baf-4c2e-a2c5-1c7e9cc2a1a1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [280, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://news.ycombinator.com/",
+        "options": {
+          "response": {
+            "responseFormat": "string"
+          }
+        }
+      },
+      "id": "e3a6b42f-1d2a-4e7d-a6b3-9f6e2b2a0d10",
+      "name": "HTTP Request (Fetch HTML)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [520, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const html = items[0].json.data;\n\nif (typeof html !== 'string' || html.length < 100) {\n  throw new Error('Expected HTML string from HTTP Request. Check responseFormat=string');\n}\n\n// Hacker News markup (current-ish): <span class=\"titleline\"><a href=\"...\">Title</a></span>\n// Regex-based parser (no external deps). If HN changes markup, update the regex.\nconst re = /<span class=\"titleline\">\\s*<a href=\"([^\"]+)\"[^>]*>([\\s\\S]*?)<\\/a>/g;\n\nconst decode = (s) => s\n  .replace(/&amp;/g, '&')\n  .replace(/&quot;/g, '\"')\n  .replace(/&#x27;/g, \"'\")\n  .replace(/&#39;/g, \"'\")\n  .replace(/&lt;/g, '<')\n  .replace(/&gt;/g, '>')\n  .replace(/\\s+/g, ' ')\n  .trim();\n\nconst rows = [];\nlet m;\nwhile ((m = re.exec(html)) !== null) {\n  const url = decode(m[1]);\n  const title = decode(m[2].replace(/<[^>]+>/g, ''));\n  if (!title) continue;\n  rows.push({ title, url });\n  if (rows.length >= 15) break;\n}\n\nif (rows.length === 0) {\n  throw new Error('Parsed 0 items. Website markup likely changed; update regex in Code node.');\n}\n\nreturn [\n  {\n    json: {\n      source: 'Hacker News front page (HTML scrape)',\n      fetchedAt: new Date().toISOString(),\n      items: rows\n    }\n  }\n];"
+      },
+      "id": "b1b6f0d6-2a07-4a3e-9f28-0b4a27a3bd55",
+      "name": "Code (Parse HTML → JSON)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 300]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "prompt",
+              "value": "You are analyzing a scraped list of links.\n\nInput JSON:\n{{JSON.stringify($json, null, 2)}}\n\nTasks:\n1) Identify 3–5 themes across the list.\n2) Select the top 5 items worth reading (justify briefly).\n3) If you need more context on an item, use the HTTP tool to fetch the article URL (limit: fetch at most 3 URLs).\n4) Output a Markdown report with:\n   - Executive summary (3–6 bullets)\n   - Themes\n   - Table: Rank | Title | Why it matters | URL\n   - Risks/Notes (rate limits, scrape fragility, etc.)\n\nConstraints:\n- Prefer deterministic, verifiable statements.\n- If a URL is a HN internal item or requires JS, note limitations.\n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e9d7bb5d-0c2e-4e61-a4af-3f2b3db62a21",
+      "name": "Set (Build Prompt)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [1040, 300]
+    },
+    {
+      "parameters": {
+        "systemMessage": "You are a technical analyst. Produce concise, structured Markdown. Use tools only when needed. Do not fabricate details—if unknown, say so.",
+        "text": "={{$json.prompt}}",
+        "options": {
+          "maxToolCalls": 3
+        }
+      },
+      "id": "8d75f0c1-0a8a-4f2c-8c21-7b5b8f4c9a1f",
+      "name": "AI Agent",
+      "type": "n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "4f7a2b2e-4a0c-4c65-b3c7-44d3e9d6f2a2",
+      "name": "OpenAI Chat Model",
+      "type": "n8n-nodes-langchain.openAiChatModel",
+      "typeVersion": 1,
+      "position": [1300, 520]
+    },
+    {
+      "parameters": {
+        "description": "Fetch a URL for more context (GET).",
+        "baseUrl": "",
+        "options": {
+          "responseFormat": "text",
+          "timeout": 20000,
+          "followRedirect": true
+        }
+      },
+      "id": "a9d2d4be-7a9c-4b8b-9a11-2f4a6c3d0a33",
+      "name": "HTTP Tool (Fetch Article)",
+      "type": "n8n-nodes-langchain.httpRequestTool",
+      "typeVersion": 1,
+      "position": [1540, 520]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request (Fetch HTML)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (Fetch HTML)": {
+      "main": [
+        [
+          {
+            "node": "Code (Parse HTML → JSON)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code (Parse HTML → JSON)": {
+      "main": [
+        [
+          {
+            "node": "Set (Build Prompt)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set (Build Prompt)": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Tool (Fetch Article)": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1"
+}
